@@ -1,0 +1,147 @@
+<?php
+session_start();
+include "../../on/on.php";
+
+$action = isset($_POST['action']) ? $_POST['action'] : '';
+
+// Redirect helper
+function goBack($msg, $err = false) {
+    $p = $err ? 'error' : 'success';
+    header("Location: index.php?page=bulk_editor&$p=" . urlencode($msg));
+    exit;
+}
+
+// Upload image
+function doUpload($file, $prodName) {
+    $dir = $_SERVER['DOCUMENT_ROOT'] . '/uploads/';
+    if (!is_dir($dir)) mkdir($dir, 0755, true);
+    
+    $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+    if (!$ext) $ext = 'jpg';
+    
+    $hash = md5(time() . rand(1000,9999) . $prodName);
+    $hash .= md5(rand(1000,9999) . time());
+    $safe = preg_replace('/[^a-zA-Z0-9 ]/', '', $prodName);
+    $fn = $hash . $safe . '.' . $ext;
+    
+    if (move_uploaded_file($file['tmp_name'], $dir . $fn)) {
+        return $fn;
+    }
+    return false;
+}
+
+if ($action == 'update') {
+    $pid = $conn->real_escape_string($_POST['pid']);
+    $field = $_POST['field'];
+    $value = $conn->real_escape_string($_POST['value']);
+    
+    if ($field == 'name') {
+        $conn->query("UPDATE product SET product_name='$value' WHERE product_id='$pid'");
+    } elseif ($field == 'category') {
+        $conn->query("UPDATE product SET category_id='$value' WHERE product_id='$pid'");
+    } elseif ($field == 'price') {
+        $r = $conn->query("SELECT * FROM product_price WHERE product_id='$pid'");
+        if ($r && $r->num_rows > 0) {
+            $conn->query("UPDATE product_price SET price='$value' WHERE product_id='$pid'");
+        } else {
+            $conn->query("INSERT INTO product_price (product_id, price) VALUES ('$pid', '$value')");
+        }
+    } elseif ($field == 'stock') {
+        $r = $conn->query("SELECT * FROM product_stock WHERE product_id='$pid'");
+        if ($r && $r->num_rows > 0) {
+            $conn->query("UPDATE product_stock SET stock_quantity='$value' WHERE product_id='$pid'");
+        } else {
+            $conn->query("INSERT INTO product_stock (product_id, stock_quantity) VALUES ('$pid', '$value')");
+        }
+    }
+    goBack('Updated!');
+}
+
+if ($action == 'upload') {
+    $pid = $conn->real_escape_string($_POST['pid']);
+    
+    if (!isset($_FILES['image']) || $_FILES['image']['error'] != 0) {
+        goBack('No image selected', true);
+    }
+    
+    $r = $conn->query("SELECT product_name FROM product WHERE product_id='$pid'");
+    if (!$r || $r->num_rows == 0) {
+        goBack('Product not found', true);
+    }
+    $row = $r->fetch_assoc();
+    $pname = $row['product_name'];
+    
+    $fn = doUpload($_FILES['image'], $pname);
+    
+    if ($fn) {
+        // Delete old image
+        $conn->query("DELETE FROM product_picture WHERE product_id='$pid'");
+        
+        // Insert new image
+        $picId = md5(time() . rand(1000,9999)) . md5(rand(1000,9999));
+        $now = date('Y-m-d H:i:s');
+        $fn = $conn->real_escape_string($fn);
+        
+        $sql = "INSERT INTO product_picture (picture_id, product_id, picture, register_date) VALUES ('$picId', '$pid', '$fn', '$now')";
+        
+        if ($conn->query($sql)) {
+            goBack('Image uploaded!');
+        } else {
+            goBack('DB Error: ' . $conn->error, true);
+        }
+    } else {
+        goBack('Upload failed', true);
+    }
+}
+
+if ($action == 'add') {
+    $name = $conn->real_escape_string($_POST['product_name']);
+    $catId = $conn->real_escape_string($_POST['category_id']);
+    $price = floatval($_POST['price']);
+    $stock = intval($_POST['stock']);
+    
+    if (empty($name) || empty($catId)) {
+        goBack('Name and category required', true);
+    }
+    
+    $prodId = md5(time() . rand(1000,9999)) . md5(rand(1000,9999));
+    $now = date('Y-m-d H:i:s');
+    
+    $sql = "INSERT INTO product (product_id, product_name, category_id, register_date) VALUES ('$prodId', '$name', '$catId', '$now')";
+    
+    if (!$conn->query($sql)) {
+        goBack('Failed: ' . $conn->error, true);
+    }
+    
+    if ($price > 0) {
+        $conn->query("INSERT INTO product_price (product_id, price) VALUES ('$prodId', '$price')");
+    }
+    
+    $conn->query("INSERT INTO product_stock (product_id, stock_quantity) VALUES ('$prodId', '$stock')");
+    
+    // Handle image
+    if (isset($_FILES['product_image']) && $_FILES['product_image']['error'] == 0) {
+        $fn = doUpload($_FILES['product_image'], $name);
+        if ($fn) {
+            $picId = md5(time() . rand(1000,9999)) . md5(rand(1000,9999));
+            $fn = $conn->real_escape_string($fn);
+            $conn->query("INSERT INTO product_picture (picture_id, product_id, picture, register_date) VALUES ('$picId', '$prodId', '$fn', '$now')");
+        }
+    }
+    
+    goBack('Product added!');
+}
+
+if ($action == 'delete') {
+    $pid = $conn->real_escape_string($_POST['pid']);
+    
+    $conn->query("DELETE FROM product_picture WHERE product_id='$pid'");
+    $conn->query("DELETE FROM product_price WHERE product_id='$pid'");
+    $conn->query("DELETE FROM product_stock WHERE product_id='$pid'");
+    $conn->query("DELETE FROM product WHERE product_id='$pid'");
+    
+    goBack('Deleted!');
+}
+
+goBack('Invalid action', true);
+?>
