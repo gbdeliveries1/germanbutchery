@@ -14,6 +14,15 @@ if($res_sub) { while($r = $res_sub->fetch_assoc()) { $subcats_by_cat[$r['categor
     .be-group { display: flex; gap: 10px; align-items: center; }
     .be-input, .be-select { padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; outline: none; }
     .be-input:focus, .be-select:focus { border-color: #ff5000; }
+
+    .search-container { display: flex; align-items: center; gap: 0; }
+    .search-container .be-select { border-radius: 4px 0 0 4px; border-right: none; background: #f3f4f6; min-width: 120px; }
+    .search-container .be-select:focus { border-color: #ff5000; }
+    .search-input-wrapper { position: relative; display: flex; align-items: center; }
+    .search-input-wrapper .be-input { border-radius: 0 4px 4px 0; width: 240px; padding-right: 28px; }
+    .search-clear { position: absolute; right: 8px; cursor: pointer; color: #9ca3af; font-size: 18px; line-height: 1; user-select: none; display: none; }
+    .search-clear:hover { color: #ff5000; }
+    .search-field-indicator { font-size: 11px; color: #6b7280; white-space: nowrap; }
     .be-btn { background: #fff; border: 1px solid #ddd; padding: 8px 15px; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 600; transition: 0.2s; white-space: nowrap; }
     .be-btn:hover { background: #ff5000; color: #fff; border-color: #ff5000; }
     .be-btn-primary { background: #10b981; color: #fff; border-color: #10b981; }
@@ -113,7 +122,21 @@ if($res_sub) { while($r = $res_sub->fetch_assoc()) { $subcats_by_cat[$r['categor
             <select id="preset-loader" class="be-select" onchange="loadPreset(this.value)"><option value="">Load Preset...</option></select>
         </div>
         <div class="be-group">
-            <input type="text" id="filter-search" class="be-input" placeholder="Search Name/SKU..." onkeyup="debounceLoad()">
+            <div class="search-container">
+                <select id="f-search-field" class="be-select" onchange="onSearchFieldChange()">
+                    <option value="all">All Fields</option>
+                    <option value="name">Name</option>
+                    <option value="sku">SKU</option>
+                    <option value="tags">Tags</option>
+                    <option value="desc">Description</option>
+                    <option value="category">Category</option>
+                </select>
+                <div class="search-input-wrapper">
+                    <input type="text" id="filter-search" class="be-input" placeholder="Search products..." onkeyup="debounceLoad()" oninput="updateSearchClear()">
+                    <span class="search-clear" id="search-clear-btn" onclick="clearSearch()" title="Clear search">&times;</span>
+                </div>
+            </div>
+            <span class="search-field-indicator" id="search-field-indicator"></span>
             
             <select id="f-limit" class="be-select" onchange="resetPageAndLoad()" style="margin-left: 10px;">
                 <option value="25">25 per page</option>
@@ -488,10 +511,38 @@ function getFilterParams() {
         let el = document.getElementById('f-'+id);
         if(el) p.append(id === 'vis' ? 'visibility' : id, el.value); 
     });
+    let sfEl = document.getElementById('f-search-field');
+    if(sfEl) p.append('search_field', sfEl.value);
     p.append('exact_match', document.getElementById('f-exact').checked); return p.toString();
 }
 
 function debounceLoad() { clearTimeout(debounceTimer); debounceTimer = setTimeout(resetPageAndLoad, 600); }
+function onSearchFieldChange() { updateSearchFieldIndicator(); resetPageAndLoad(); }
+function clearSearch() { 
+    let el = document.getElementById('filter-search'); 
+    el.value = ''; 
+    document.getElementById('search-clear-btn').style.display = 'none'; 
+    updateSearchFieldIndicator();
+    resetPageAndLoad(); 
+}
+function updateSearchClear() { 
+    let val = document.getElementById('filter-search').value;
+    document.getElementById('search-clear-btn').style.display = val ? 'block' : 'none';
+    updateSearchFieldIndicator();
+}
+function updateSearchFieldIndicator() {
+    let val = document.getElementById('filter-search').value.trim();
+    let field = document.getElementById('f-search-field').value;
+    let indicator = document.getElementById('search-field-indicator');
+    if (!indicator) return;
+    if (!val) { indicator.textContent = ''; return; }
+    const prefixMap = { 'tag:': 'Tags', 'cat:': 'Category', 'desc:': 'Description', 'sku:': 'SKU' };
+    for (let [prefix, label] of Object.entries(prefixMap)) {
+        if (val.toLowerCase().startsWith(prefix)) { indicator.textContent = `Searching: ${label}`; return; }
+    }
+    const fieldLabels = { all: 'All Fields', name: 'Name', sku: 'SKU', tags: 'Tags', desc: 'Description', category: 'Category' };
+    indicator.textContent = `Searching: ${fieldLabels[field] || 'All Fields'}`;
+}
 function resetPageAndLoad() { currentPage = 1; loadGrid(); }
 
 function loadGrid() {
