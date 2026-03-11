@@ -137,11 +137,61 @@ try {
     if (!function_exists('buildFilterWhere')) {
         function buildFilterWhere($conn) {
             $where = ["1=1"];
-            $search = $conn->real_escape_string($_REQUEST['search'] ?? '');
+            $raw_search = $_REQUEST['search'] ?? '';
             $exact = ($_REQUEST['exact_match'] ?? 'false') === 'true';
-            if ($search) {
-                if ($exact) $where[] = "(p.product_name = '$search' OR p.sku = '$search' OR p.product_id = '$search')";
-                else $where[] = "(p.product_name LIKE '%$search%' OR p.sku LIKE '%$search%' OR p.product_id LIKE '%$search%')";
+            $search_field = $_REQUEST['search_field'] ?? 'all';
+
+            if ($raw_search) {
+                // Check for search prefixes first (operate on raw input before escaping)
+                $effective_field = $search_field;
+                $effective_search = $conn->real_escape_string($raw_search);
+                if (preg_match('/^(tag|cat|desc|sku):(.+)$/i', $raw_search, $m)) {
+                    $prefix_map = ['tag' => 'tags', 'cat' => 'category', 'desc' => 'desc', 'sku' => 'sku'];
+                    $effective_field = $prefix_map[strtolower($m[1])] ?? 'all';
+                    $effective_search = $conn->real_escape_string($m[2]);
+                }
+
+                if ($exact) {
+                    switch ($effective_field) {
+                        case 'name':
+                            $where[] = "p.product_name = '$effective_search'";
+                            break;
+                        case 'sku':
+                            $where[] = "p.sku = '$effective_search'";
+                            break;
+                        case 'tags':
+                            $where[] = "p.tags = '$effective_search'";
+                            break;
+                        case 'desc':
+                            $where[] = "p.short_description = '$effective_search'";
+                            break;
+                        case 'category':
+                            $where[] = "(EXISTS (SELECT 1 FROM product_category pc WHERE pc.category_id = p.category_id AND pc.category_name = '$effective_search') OR EXISTS (SELECT 1 FROM product_sub_category psc WHERE psc.sub_category_id = p.sub_category_id AND psc.sub_category_name = '$effective_search'))";
+                            break;
+                        default:
+                            $where[] = "(p.product_name = '$effective_search' OR p.sku = '$effective_search' OR p.product_id = '$effective_search' OR p.tags = '$effective_search' OR p.short_description = '$effective_search')";
+                    }
+                } else {
+                    switch ($effective_field) {
+                        case 'name':
+                            $where[] = "p.product_name LIKE '%$effective_search%'";
+                            break;
+                        case 'sku':
+                            $where[] = "p.sku LIKE '%$effective_search%'";
+                            break;
+                        case 'tags':
+                            $where[] = "p.tags LIKE '%$effective_search%'";
+                            break;
+                        case 'desc':
+                            $where[] = "p.short_description LIKE '%$effective_search%'";
+                            break;
+                        case 'category':
+                            $where[] = "(EXISTS (SELECT 1 FROM product_category pc WHERE pc.category_id = p.category_id AND pc.category_name LIKE '%$effective_search%') OR EXISTS (SELECT 1 FROM product_sub_category psc WHERE psc.sub_category_id = p.sub_category_id AND psc.sub_category_name LIKE '%$effective_search%'))";
+                            break;
+                        default:
+                            $where[] = "(p.product_name LIKE '%$effective_search%' OR p.sku LIKE '%$effective_search%' OR p.product_id LIKE '%$effective_search%' OR p.tags LIKE '%$effective_search%' OR p.short_description LIKE '%$effective_search%' OR EXISTS (SELECT 1 FROM product_category pc WHERE pc.category_id = p.category_id AND pc.category_name LIKE '%$effective_search%') OR EXISTS (SELECT 1 FROM product_sub_category psc WHERE psc.sub_category_id = p.sub_category_id AND psc.sub_category_name LIKE '%$effective_search%'))";
+                    }
+                }
             }
             if (!empty($_REQUEST['cat'])) $where[] = "p.category_id = '" . $conn->real_escape_string($_REQUEST['cat']) . "'";
             if (!empty($_REQUEST['subcat'])) $where[] = "p.sub_category_id = '" . $conn->real_escape_string($_REQUEST['subcat']) . "'";
